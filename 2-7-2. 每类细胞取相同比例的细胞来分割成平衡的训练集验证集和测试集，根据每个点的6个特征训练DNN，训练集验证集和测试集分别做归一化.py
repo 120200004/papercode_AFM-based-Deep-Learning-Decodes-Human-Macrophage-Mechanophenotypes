@@ -1,0 +1,372 @@
+import pandas as pd
+import random
+import tensorflow as tf
+import numpy as np
+from keras.callbacks import EarlyStopping, ModelCheckpoint
+from sklearn.metrics import precision_score
+from sklearn.metrics import accuracy_score
+import matplotlib.pyplot as plt
+import pickle
+import os
+
+
+# 划分训练集、验证集和测试集，每类样本划分比例相同，data_pd为总数据集，category_name_list为保存类别名称的列表，category_position_in_name为用[起始位置，终止位置]表示的类别名称在样本名称中的位置，result_test_size为选做测试集的细胞占比，result_val_size为选做验证集的细胞占比，result_train_size为选做训练集的细胞占比
+def train_val_test_split(data_pd, category_name_list, category_position_in_name, save_dir, result_test_size=0.2, result_val_size=0.2, result_train_size=0.6):
+    result_name = []
+    result_name_by_category_dic = {}    # 分类别保存样本名称
+    for i in category_name_list:
+        result_name_by_category_dic[i] = []
+    for i in data_pd['result_name']:
+        if i not in result_name:
+            result_name.append(i)
+            result_name_by_category_dic[i[category_position_in_name[0]:category_position_in_name[1]]].append(i)
+    result_num_by_category_dic = {}
+    for i in category_name_list:
+        result_num_by_category_dic[i] = [len(result_name_by_category_dic[i])]
+        point_num_by_category = 0
+        for j in result_name_by_category_dic[i]:
+            point_index = data_pd[data_pd['result_name'] == j].index.tolist()
+            point_num_by_category += len(point_index)
+        result_num_by_category_dic[i].append(point_num_by_category)
+    result_num_by_category_dic['total'] = [len(result_name)]    # 可用样本总数
+    result_num_by_category_dic['total'].append(data_pd.shape[0])    # 可用点总数
+    result_num_by_category_pd = pd.DataFrame(result_num_by_category_dic, index=['result', 'point'])
+    result_num_by_category_pd.to_excel(save_dir + '/分类别样本和点的数量.xlsx', index=True)
+    result_num_by_category_pd.to_pickle(save_dir + '/分类别样本和点的数量.pkl')
+    with open(save_dir + '/分类别样本名称.pkl', 'wb') as f:
+        pickle.dump(result_name_by_category_dic, f)
+    print(result_num_by_category_pd)
+    print()
+
+    # 根据样本随机划分出测试集数据，每类样本取的比例相同
+    result_test_name_by_category_dic = {}    # 分类别保存被选入测试集的样本名称
+    result_test_name_by_category_dic['total'] = []
+    result_test_num_by_category_dic = {}
+    a = 0
+    for i in category_name_list:
+        result_test_name_by_category_dic[i] = random.sample(result_name_by_category_dic[i],
+                                                           round(result_num_by_category_pd[i][0] * result_test_size))
+        result_test_num_by_category_dic[i] = ([float(len(result_test_name_by_category_dic[i])), 0])
+        a += len(result_test_name_by_category_dic[i])
+        result_test_name_by_category_dic['total'].extend(result_test_name_by_category_dic[i])
+    result_test_num_by_category_dic['total'] = [float(a), 0]
+    random.shuffle(result_test_name_by_category_dic['total'])
+    with open(save_dir + '/测试集分类别样本名称.pkl', 'wb') as f:
+        pickle.dump(result_test_name_by_category_dic, f)
+    test_pd = pd.DataFrame(columns=data_pd.columns)
+    # 测试集点数计算
+    for i in result_test_name_by_category_dic['total']:
+        for j in category_name_list:
+            if i in result_test_name_by_category_dic[j]:
+                point_index = data_pd[data_pd['result_name'] == i].index.tolist()
+                for line_index in point_index:
+                    result_test_num_by_category_dic['total'][1] += 1    # 测试集总点数
+                    result_test_num_by_category_dic[j][1] += 1    #测试集分类别点数
+                    test_pd = test_pd.append(data_pd.iloc[line_index])
+    for i in category_name_list:
+        result_test_num_by_category_dic[i].extend([result_test_num_by_category_dic[i][0] /
+                                                   result_test_num_by_category_dic['total'][0],
+                                                   result_test_num_by_category_dic[i][1] /
+                                                   result_test_num_by_category_dic['total'][1]])
+    result_test_num_by_category_dic['total'].extend([result_test_num_by_category_dic['total'][0] /
+                                                     result_num_by_category_pd['total'][0],
+                                                     result_test_num_by_category_dic['total'][1] /
+                                                     result_num_by_category_pd['total'][1]])
+    result_test_num_by_category_pd = pd.DataFrame(result_test_num_by_category_dic, index=['result', 'point',
+                                                                                          'result_proportion',
+                                                                                          'point_proportion'])
+    result_test_num_by_category_pd.to_excel(save_dir + '/测试集分类别样本和点的数量.xlsx', index=True)
+    result_test_num_by_category_pd.to_pickle(save_dir + '/测试集分类别样本和点的数量.pkl')
+    test_pd.to_excel(save_dir + '/测试集数据.xlsx', index=False)
+    test_pd.to_pickle(save_dir + '/测试集数据.pkl')
+    print(result_test_num_by_category_pd)
+    print()
+
+    # 根据细胞随机划分出验证集数据
+    result_name = [i for i in result_name if i not in result_test_name_by_category_dic['total']]
+    for i in category_name_list:
+        result_name_by_category_dic[i] = [j for j in result_name_by_category_dic[i]
+                                          if j not in result_test_name_by_category_dic[i]]
+    # 根据样本随机划分出验证集数据，每类样本取的比例相同
+    result_val_name_by_category_dic = {}  # 分类别保存被选入验证集的样本名称
+    result_val_name_by_category_dic['total'] = []
+    result_val_num_by_category_dic = {}
+    a = 0
+    for i in category_name_list:
+        result_val_name_by_category_dic[i] = random.sample(result_name_by_category_dic[i],
+                                                            round(result_num_by_category_pd[i][0] * result_val_size))
+        result_val_num_by_category_dic[i] = [float(len(result_val_name_by_category_dic[i])), 0]
+        a += len(result_val_name_by_category_dic[i])
+        result_val_name_by_category_dic['total'].extend(result_val_name_by_category_dic[i])
+    result_val_num_by_category_dic['total'] = [float(a), 0]
+    random.shuffle(result_val_name_by_category_dic['total'])
+    with open(save_dir + '/验证集分类别样本名称.pkl', 'wb') as f:
+        pickle.dump(result_val_name_by_category_dic, f)
+    val_pd = pd.DataFrame(columns=data_pd.columns)
+    # 验证集点数计算
+    for i in result_val_name_by_category_dic['total']:
+        for j in category_name_list:
+            if i in result_val_name_by_category_dic[j]:
+                point_index = data_pd[data_pd['result_name'] == i].index.tolist()
+                for line_index in point_index:
+                    result_val_num_by_category_dic['total'][1] += 1    # 验证集总点数
+                    result_val_num_by_category_dic[j][1] += 1    # 验证集分类别点数
+                    val_pd = val_pd.append(data_pd.iloc[line_index])
+    for i in category_name_list:
+        result_val_num_by_category_dic[i].extend([result_val_num_by_category_dic[i][0] /
+                                                  result_val_num_by_category_dic['total'][0],
+                                                  result_val_num_by_category_dic[i][1] /
+                                                  result_val_num_by_category_dic['total'][1]])
+    result_val_num_by_category_dic['total'].extend([result_val_num_by_category_dic['total'][0] /
+                                                     result_num_by_category_pd['total'][0],
+                                                     result_val_num_by_category_dic['total'][1] /
+                                                     result_num_by_category_pd['total'][1]])
+    result_val_num_by_category_pd = pd.DataFrame(result_val_num_by_category_dic, index=['result', 'point',
+                                                                                          'result_proportion',
+                                                                                          'point_proportion'])
+    result_val_num_by_category_pd.to_excel(save_dir + '/验证集分类别样本和点的数量.xlsx', index=True)
+    result_val_num_by_category_pd.to_pickle(save_dir + '/验证集分类别样本和点的数量.pkl')
+    val_pd.to_excel(save_dir + '/验证集数据.xlsx', index=False)
+    val_pd.to_pickle(save_dir + '/验证集数据.pkl')
+    print(result_val_num_by_category_pd)
+    print()
+
+    # 根据细胞随机划分出训练集数据
+    result_name = [i for i in result_name if i not in result_val_name_by_category_dic['total']]
+    for i in category_name_list:
+        result_name_by_category_dic[i] = [j for j in result_name_by_category_dic[i]
+                                          if j not in result_val_name_by_category_dic[i]]
+    # 根据样本随机划分出训练集数据，每类样本取的比例相同
+    result_train_name_by_category_dic = {}  # 分类别保存被选入训练集的样本名称
+    result_train_name_by_category_dic['total'] = []
+    result_train_num_by_category_dic = {}
+    a = 0
+    for i in category_name_list:
+        result_train_name_by_category_dic[i] = result_name_by_category_dic[i]
+        result_train_num_by_category_dic[i] = [float(len(result_train_name_by_category_dic[i])), 0]
+        a += len(result_train_name_by_category_dic[i])
+        result_train_name_by_category_dic['total'].extend(result_train_name_by_category_dic[i])
+    result_train_num_by_category_dic['total'] = [float(a), 0]
+    random.shuffle(result_train_name_by_category_dic['total'])
+    with open(save_dir + '/训练集分类别样本名称.pkl', 'wb') as f:
+        pickle.dump(result_train_name_by_category_dic, f)
+    train_pd = pd.DataFrame(columns=data_pd.columns)
+    # 验证集点数计算
+    for i in result_train_name_by_category_dic['total']:
+        for j in category_name_list:
+            if i in result_train_name_by_category_dic[j]:
+                point_index = data_pd[data_pd['result_name'] == i].index.tolist()
+                for line_index in point_index:
+                    result_train_num_by_category_dic['total'][1] += 1    # 训练集总点数
+                    result_train_num_by_category_dic[j][1] += 1    # 训练集分类别点数
+                    train_pd = train_pd.append(data_pd.iloc[line_index])
+    for i in category_name_list:
+        result_train_num_by_category_dic[i].extend([result_train_num_by_category_dic[i][0] /
+                                                  result_train_num_by_category_dic['total'][0],
+                                                  result_train_num_by_category_dic[i][1] /
+                                                  result_train_num_by_category_dic['total'][1]])
+    result_train_num_by_category_dic['total'].extend([result_train_num_by_category_dic['total'][0] /
+                                                     result_num_by_category_pd['total'][0],
+                                                     result_train_num_by_category_dic['total'][1] /
+                                                     result_num_by_category_pd['total'][1]])
+    result_train_num_by_category_pd = pd.DataFrame(result_train_num_by_category_dic, index=['result', 'point',
+                                                                                          'result_proportion',
+                                                                                          'point_proportion'])
+    result_train_num_by_category_pd.to_excel(save_dir + '/训练集分类别样本和点的数量.xlsx', index=True)
+    result_train_num_by_category_pd.to_pickle(save_dir + '/训练集分类别样本和点的数量.pkl')
+    train_pd.to_excel(save_dir + '/训练集数据.xlsx', index=False)
+    train_pd.to_pickle(save_dir + '/训练集数据.pkl')
+    print(result_train_num_by_category_pd)
+    print()
+    return train_pd, val_pd, test_pd
+
+
+# 特征归一化，并和标签一道转化为numpy数组
+def normalization(data_pd, pd_save_name, standardized_normalized_save_name, feature_array_save_name, target_array_save_name, save_dir):
+
+    # 特征归一化到[-1, 1]
+    feature_point_pd_normalized = pd.DataFrame()
+    feature_point_pd_normalized['Adh_point'] = 2 * ((data_pd['Adh_point'] - data_pd['Adh_point'].min()) / (data_pd['Adh_point'].max() - data_pd['Adh_point'].min())) - 1
+    feature_point_pd_normalized['MechD_point'] = 2 * ((data_pd['MechD_point'] - data_pd['MechD_point'].min()) / (data_pd['MechD_point'].max() - data_pd['MechD_point'].min())) - 1
+    feature_point_pd_normalized['MechS_point'] = 2 * ((data_pd['MechS_point'] - data_pd['MechS_point'].min()) / (data_pd['MechS_point'].max() - data_pd['MechS_point'].min())) - 1
+    feature_point_pd_normalized['Morpho_point'] = 2 * ((data_pd['Morpho_point'] - data_pd['Morpho_point'].min()) / (data_pd['Morpho_point'].max() - data_pd['Morpho_point'].min())) - 1
+    feature_point_pd_normalized['Distance_to_center_divide_max_point'] = 2 * ((data_pd['Distance_to_center_divide_max_point'] - data_pd['Distance_to_center_divide_max_point'].min()) / (data_pd['Distance_to_center_divide_max_point'].max() - data_pd['Distance_to_center_divide_max_point'].min())) - 1
+    feature_point_pd_normalized['Distance_to_center_order_percentage_point'] = 2 * ((data_pd['Distance_to_center_order_percentage_point'] - data_pd['Distance_to_center_order_percentage_point'].min()) / (data_pd['Distance_to_center_order_percentage_point'].max() - data_pd['Distance_to_center_order_percentage_point'].min())) - 1
+
+    # 保存标准化归一化后的特征数据
+    feature_point_pd_normalized.to_excel(save_dir + '/' + pd_save_name + '.xlsx', index=False)
+    feature_point_pd_normalized.to_pickle(save_dir + '/' + pd_save_name + '.pkl')
+
+    # 保存标准化归一化的参数
+    standardized_normalized_pd = pd.DataFrame()
+    standardized_normalized_pd['Adh_point_mean'] = [data_pd['Adh_point'].mean()]
+    standardized_normalized_pd['Adh_point_std'] = [data_pd['Adh_point'].std()]
+    standardized_normalized_pd['Adh_point_max'] = [data_pd['Adh_point'].max()]
+    standardized_normalized_pd['Adh_point_min'] = [data_pd['Adh_point'].min()]
+    standardized_normalized_pd['MechD_point_mean'] = [data_pd['MechD_point'].mean()]
+    standardized_normalized_pd['MechD_point_std'] = [data_pd['MechD_point'].std()]
+    standardized_normalized_pd['MechD_point_max'] = [data_pd['MechD_point'].max()]
+    standardized_normalized_pd['MechD_point_min'] = [data_pd['MechD_point'].min()]
+    standardized_normalized_pd['MechS_point_mean'] = [data_pd['MechS_point'].mean()]
+    standardized_normalized_pd['MechS_point_std'] = [data_pd['MechS_point'].std()]
+    standardized_normalized_pd['MechS_point_max'] = [data_pd['MechS_point'].max()]
+    standardized_normalized_pd['MechS_point_min'] = [data_pd['MechS_point'].min()]
+    standardized_normalized_pd['Morpho_point_mean'] = [data_pd['Morpho_point'].mean()]
+    standardized_normalized_pd['Morpho_point_std'] = [data_pd['Morpho_point'].std()]
+    standardized_normalized_pd['Morpho_point_max'] = [data_pd['Morpho_point'].max()]
+    standardized_normalized_pd['Morpho_point_min'] = [data_pd['Morpho_point'].min()]
+    standardized_normalized_pd['Distance_to_center_divide_max_point_mean'] = [data_pd['Distance_to_center_divide_max_point'].mean()]
+    standardized_normalized_pd['Distance_to_center_divide_max_point_std'] = [data_pd['Distance_to_center_divide_max_point'].std()]
+    standardized_normalized_pd['Distance_to_center_divide_max_point_max'] = [data_pd['Distance_to_center_divide_max_point'].max()]
+    standardized_normalized_pd['Distance_to_center_divide_max_point_min'] = [data_pd['Distance_to_center_divide_max_point'].min()]
+    standardized_normalized_pd['Distance_to_center_order_percentage_point_mean'] = [data_pd['Distance_to_center_order_percentage_point'].mean()]
+    standardized_normalized_pd['Distance_to_center_order_percentage_point_std'] = [data_pd['Distance_to_center_order_percentage_point'].std()]
+    standardized_normalized_pd['Distance_to_center_order_percentage_point_max'] = [data_pd['Distance_to_center_order_percentage_point'].max()]
+    standardized_normalized_pd['Distance_to_center_order_percentage_point_min'] = [data_pd['Distance_to_center_order_percentage_point'].min()]
+    standardized_normalized_pd.to_excel(save_dir + '/' + standardized_normalized_save_name + '.xlsx', index=False)
+    standardized_normalized_pd.to_pickle(save_dir + '/' + standardized_normalized_save_name + '.pkl')
+
+    # 归一化的特征和标签转化为numpy数组
+    feature_point_list_standardized_normalized = [list(feature_point_pd_normalized.iloc[i]) for i in range(feature_point_pd_normalized.shape[0])]
+    feature_point_array_standardized_normalized = np.array(feature_point_list_standardized_normalized)
+    target_point_list = list(data_pd['target'])
+    target_point_array = np.array(target_point_list)
+    np.save(save_dir + '/' + feature_array_save_name + '.npy', feature_point_array_standardized_normalized)
+    np.save(save_dir + '/' + target_array_save_name + '.npy', target_point_array)
+    return feature_point_array_standardized_normalized, target_point_array
+
+
+# 训练模型和保存数据
+def model_training(X_train, Y_train, X_val, Y_val, X_test, Y_test, save_dir, base_save_dir, I):
+    model = tf.keras.models.Sequential()
+    model.add(tf.keras.layers.Dense(16, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(16, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(16, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(16, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dropout(0.4))
+    model.add(tf.keras.layers.Dense(3, activation=tf.nn.softmax, kernel_regularizer=tf.keras.regularizers.l2(l2=10)))
+    model.compile(optimizer='adam',
+                  loss='sparse_categorical_crossentropy',
+                  metrics=['accuracy'])
+    checkpointer = ModelCheckpoint(filepath=save_dir + '/best_model.hdf5', verbose=1, save_best_only=True)
+    # monitor:监视参数，min_delta:小于此数认为不变化，mode:loss小好，acc大好，patience:n周期无提升则退出，restore_best_weights:取最优权重
+    earlyStop = EarlyStopping(monitor='val_accuracy', min_delta=0.01, patience=10, mode='max', verbose=1,
+                              restore_best_weights=True)
+    # 增加validation_data参数作为验证集，添加早停止机制，训练时打乱序列顺序
+    history = model.fit(X_train, Y_train, callbacks=[earlyStop], epochs=1000, batch_size=10, verbose=1,
+                        validation_data=(X_val, Y_val), shuffle=True)
+    acc = history.history['accuracy']
+    val_acc = history.history['val_accuracy']
+    loss = history.history['loss']
+    val_loss = history.history['val_loss']
+    epochs = range(len(acc))
+    y_pred = model.predict(X_test)
+
+    # 画accuracy曲线
+    plt.plot(epochs, acc, 'r')
+    plt.plot(epochs, val_acc, 'b')
+    plt.title('Training and validation accuracy')
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy")
+    plt.legend(["Accuracy", "Validation Accuracy"])
+    plt.savefig(save_dir + '/准确率学习曲线.jpg')
+    plt.cla()
+    # 画loss曲线
+    plt.plot(epochs, loss, 'r')
+    plt.plot(epochs, val_loss, 'b')
+    plt.title('Training and validation loss')
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.legend(["Loss", "Validation Loss"])
+    plt.savefig(save_dir + '/损失学习曲线.jpg')
+    plt.cla()
+
+    y_predict = []
+    for s in range(0, y_pred.shape[0]):
+        if y_pred[s, 0] == max(y_pred[s, 0], y_pred[s, 1], y_pred[s, 2]):
+            y_predict.append(0)
+        elif y_pred[s, 1] == max(y_pred[s, 0], y_pred[s, 1], y_pred[s, 2]):
+            y_predict.append(1)
+        elif y_pred[s, 2] == max(y_pred[s, 0], y_pred[s, 1], y_pred[s, 2]):
+            y_predict.append(2)
+        else:
+            continue
+    y_predict = np.array(y_predict)
+    model.summary()
+
+    # 模型预测准确率
+    acc = precision_score(Y_test, y_predict, average=None)
+    print("accurate for M0, M1, and M2= ", acc)
+    accuracyscore = accuracy_score(Y_test, y_predict)
+    print("accuracy is ", accuracyscore)
+    accuracy_pd = pd.DataFrame(columns=['accurate for M0', 'accurate for M1', 'accurate for M2', 'total accuracy'])
+    accuracy_pd = accuracy_pd.append({'accurate for M0': acc[0], 'accurate for M1': acc[1], 'accurate for M2': acc[2],
+                                      'total accuracy': accuracyscore}, ignore_index=True)
+    accuracy_pd.to_excel(save_dir + '/模型预测准确率.xlsx', index=False)
+    accuracy_pd.to_pickle(save_dir + '/模型预测准确率.pkl')
+
+    # 模型保存
+    model.save(save_dir + '/DNN.h5')
+
+    # 绘制混淆矩阵 confusion_matrix
+    from sklearn.metrics import confusion_matrix
+    confusion_matrix = confusion_matrix(Y_test, y_predict, labels=[0, 1, 2], sample_weight=None)
+    cm_normalized_p = confusion_matrix.astype('float') / confusion_matrix.sum(axis=1)[:, np.newaxis]
+    cm_normalized_n = confusion_matrix.astype('int')
+    # 保存概率混淆矩阵
+    plt.matshow(cm_normalized_p, cmap=plt.get_cmap('Reds'))
+    plt.colorbar()
+    for i in range(len(cm_normalized_p)):
+        for j in range(len(cm_normalized_p)):
+            plt.annotate(round(cm_normalized_p[j, i], 3), xy=(i, j), color='g', fontsize=12,
+                         horizontalalignment='center', verticalalignment='center')
+    plt.title("Confusion Matrix", fontsize=12)
+    plt.xlabel('Predict Label', fontsize=12)
+    plt.ylabel('Actual Label', fontsize=12)
+    plt.xticks(range(len(cm_normalized_p)), ['M0', 'M1', 'M2'], fontsize=12)
+    plt.yticks(range(len(cm_normalized_p)), ['M0', 'M1', 'M2'], fontsize=12)
+    plt.savefig(save_dir + '/Confusion Matrix.jpg')
+    plt.savefig(base_save_dir + '/' + str(I) + '.jpg')
+    plt.cla()
+    # 保存数量混淆矩阵
+    plt.matshow(cm_normalized_n, cmap=plt.get_cmap('Reds'))
+    plt.colorbar()
+    for i in range(len(cm_normalized_n)):
+        for j in range(len(cm_normalized_n)):
+            plt.annotate(round(cm_normalized_n[j, i], 3), xy=(i, j), color='g', fontsize=12,
+                         horizontalalignment='center', verticalalignment='center')
+    plt.title("Confusion Matrix", fontsize=12)
+    plt.xlabel('Predict Label', fontsize=12)
+    plt.ylabel('Actual Label', fontsize=12)
+    plt.xticks(range(len(cm_normalized_n)), ['M0', 'M1', 'M2'], fontsize=12)
+    plt.yticks(range(len(cm_normalized_n)), ['M0', 'M1', 'M2'], fontsize=12)
+    plt.savefig(save_dir + '/Confusion Matrix_nunber.jpg')
+    plt.cla()
+
+data_pd = pd.read_pickle('D:/ANCAI/科研/科研论文/max论文/代码/1-4. 根据特征图像，提取出每个像素点的四个特征值以及与样本中心的距离和与最大距离的比值，以及对应样本的分类标签/data_point_pd.pkl')
+base_save_dir = 'D:/ANCAI/科研/科研论文/max论文/代码/2-7-2. 每类细胞取相同比例的细胞来分割成平衡的训练集验证集和测试集，根据每个点的6个特征训练DNN，训练集验证集和测试集分别做归一化'
+category_name_list = ['M0', 'M1', 'M2']
+category_position_in_name = [0, 2]
+for I in range(300):
+    os.mkdir(base_save_dir + '/' + str(I))
+    save_dir = base_save_dir + '/' + str(I)
+    train_pd, val_pd, test_pd = train_val_test_split(data_pd, category_name_list, category_position_in_name, save_dir, result_test_size=0.2, result_val_size=0.2, result_train_size=0.6)
+    X_train, Y_train = normalization(train_pd, '训练集数据归一化', '训练集数据归一化参数', '训练集数据特征归一化数组', '训练集标签数组', save_dir)
+    X_val, Y_val = normalization(val_pd, '验证集数据归一化', '验证集数据归一化参数', '验证集数据特征归一化数组', '验证集标签数组', save_dir)
+    X_test, Y_test = normalization(test_pd, '测试集数据归一化', '测试集数据归一化参数', '测试集数据特征归一化数组', '测试集标签数组', save_dir)
+    model_training(X_train, Y_train, X_val, Y_val, X_test, Y_test, save_dir, base_save_dir, I)
+
+
+'''
+with open(save_dir + '/分类别样本名称.pkl', 'rb') as t:
+    new_dict = pickle.load(t)
+print(new_dict)
+'''
