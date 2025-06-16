@@ -15,7 +15,7 @@ model_dir_path = '2-7-2-2/models'
 model_dir_namelist = os.listdir(model_dir_path)
 result_save_path = '3-4-4'
 # 获取图片尺寸信息
-pict_test_data_dir = 'D:/ANCAI/science/paper/max/data after mask/data after mask'
+pict_test_data_dir = 'data after mask'
 # 可视化图像放大倍数
 amplify = 16
 
@@ -39,7 +39,7 @@ for model_dir_name in model_dir_namelist:
     test_pd_name = model_dir_path + '/' + model_dir_name + '/测试集数据.pkl'
     test_array_normalized_name = model_dir_path + '/' + model_dir_name + '/测试集数据特征归一化数组.npy'
     test_array_target_name = model_dir_path + '/' + model_dir_name + '/测试集标签数组.npy'
-    model_name = model_dir_path + '/' + model_dir_name + '/DNN.h5'
+    model_name = model_dir_path + '/' + model_dir_name + '/best_model.hdf5'
 
     train_pd = pd.read_pickle(train_pd_name)
     train_array_normalized = np.load(train_array_normalized_name)
@@ -76,8 +76,6 @@ for model_dir_name in model_dir_namelist:
     Y_test_pred = np.argmax(Y_test_predict, axis=1)
     weights_Y_test_1 = np.equal(test_array_target, Y_test_pred).astype(int)
     weights_Y_test_2 = Y_test_predict[np.arange(Y_test_predict.shape[0]), test_array_target]
-    print(weights_Y_train_1)
-    print(weights_Y_train_2)
 
     # 第一个weights模型
     weight_model1 = tf.keras.models.Sequential()
@@ -332,9 +330,9 @@ for model_dir_name in model_dir_namelist:
     model_accuracy_pd_model_name_list.append(model_dir_name)
     model_accuracy_pd_point_test_accuracy_list.append(1 - (wrong_predict_point_pd.shape[0] / test_pd.shape[0]))
     model_accuracy_pd_result_test_accuracy_without_weight_list.append(1 - (len(wrong_predict_result_name_without_weight) / len(test_result_name)))
-    model_accuracy_pd_result_test_accuracy_without_weight_model_list.append(1 - (len(wrong_predict_result_name_without_weight_model).shape[0] / len(test_result_name)))
+    model_accuracy_pd_result_test_accuracy_without_weight_model_list.append(1 - (len(wrong_predict_result_name_without_weight_model) / len(test_result_name)))
     model_accuracy_pd_result_test_accuracy_with_weight_model1_list.append(1 - (len(wrong_predict_result_name_with_weight_model1) / len(test_result_name)))
-    model_accuracy_pd_result_test_accuracy_with_weight_model2_list.append(1 - (len(wrong_predict_result_name_with_weight_model2).shape[0] / len(test_result_name)))
+    model_accuracy_pd_result_test_accuracy_with_weight_model2_list.append(1 - (len(wrong_predict_result_name_with_weight_model2) / len(test_result_name)))
 
 
     # 将每个细胞的逐点分类结果作图
@@ -385,7 +383,7 @@ for model_dir_name in model_dir_namelist:
         plt.title('Pixel voting results with weight')
         plt.xlabel('category')
         plt.ylabel('percentage')
-        plt.savefig(result_save_path + '/' + str(model_dir_name) + '/逐点分类可视化/' + result_name[: -9] + ' with weight model.jpg')
+        plt.savefig(result_save_path + '/' + str(model_dir_name) + '/逐点分类可视化/' + result_name[: -9] + ' without weight model model.jpg')
         plt.cla()  # 清空图片
 
         wv_dic = test_pd.iloc[point_index_list[0]]['weighted vote dic with weight model1']
