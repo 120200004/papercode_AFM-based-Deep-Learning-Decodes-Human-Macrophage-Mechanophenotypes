@@ -1,7 +1,13 @@
 import pandas as pd
 import random
 import tensorflow as tf
+from keras.optimizers import Adam
+from keras.layers import BatchNormalization
+from keras.experimental import CosineDecayRestarts
+from keras.callbacks import ReduceLROnPlateau
+from keras.callbacks import LearningRateScheduler
 import numpy as np
+from keras.models import load_model
 from keras.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.metrics import precision_score
 from sklearn.metrics import accuracy_score
@@ -54,15 +60,19 @@ def train_val_test_split(data_pd, category_name_list, category_position_in_name,
     with open(save_dir + '/测试集分类别样本名称.pkl', 'wb') as f:
         pickle.dump(result_test_name_by_category_dic, f)
     test_pd = pd.DataFrame(columns=data_pd.columns)
+    index_list = []  # 收集所有需要添加的行索引
     # 测试集点数计算
     for i in result_test_name_by_category_dic['total']:
         for j in category_name_list:
             if i in result_test_name_by_category_dic[j]:
                 point_index = data_pd[data_pd['result_name'] == i].index.tolist()
-                for line_index in point_index:
-                    result_test_num_by_category_dic['total'][1] += 1    # 测试集总点数
-                    result_test_num_by_category_dic[j][1] += 1    #测试集分类别点数
-                    test_pd = test_pd.append(data_pd.iloc[line_index])
+                index_list.extend(point_index)
+                # 直接统计数量（无需循环逐行累加）
+                cnt = len(point_index)
+                result_test_num_by_category_dic['total'][1] += cnt
+                result_test_num_by_category_dic[j][1] += cnt
+    if index_list:
+        test_pd = data_pd.iloc[index_list].reset_index(drop=True)
     for i in category_name_list:
         result_test_num_by_category_dic[i].extend([result_test_num_by_category_dic[i][0] /
                                                    result_test_num_by_category_dic['total'][0],
@@ -103,15 +113,19 @@ def train_val_test_split(data_pd, category_name_list, category_position_in_name,
     with open(save_dir + '/验证集分类别样本名称.pkl', 'wb') as f:
         pickle.dump(result_val_name_by_category_dic, f)
     val_pd = pd.DataFrame(columns=data_pd.columns)
+    index_list = []  # 收集所有需要添加的行索引
     # 验证集点数计算
     for i in result_val_name_by_category_dic['total']:
         for j in category_name_list:
             if i in result_val_name_by_category_dic[j]:
                 point_index = data_pd[data_pd['result_name'] == i].index.tolist()
-                for line_index in point_index:
-                    result_val_num_by_category_dic['total'][1] += 1    # 验证集总点数
-                    result_val_num_by_category_dic[j][1] += 1    # 验证集分类别点数
-                    val_pd = val_pd.append(data_pd.iloc[line_index])
+                index_list.extend(point_index)
+                # 直接统计数量（无需循环逐行累加）
+                cnt = len(point_index)
+                result_val_num_by_category_dic['total'][1] += cnt
+                result_val_num_by_category_dic[j][1] += cnt
+    if index_list:
+        val_pd = data_pd.iloc[index_list].reset_index(drop=True)
     for i in category_name_list:
         result_val_num_by_category_dic[i].extend([result_val_num_by_category_dic[i][0] /
                                                   result_val_num_by_category_dic['total'][0],
@@ -151,15 +165,19 @@ def train_val_test_split(data_pd, category_name_list, category_position_in_name,
     with open(save_dir + '/训练集分类别样本名称.pkl', 'wb') as f:
         pickle.dump(result_train_name_by_category_dic, f)
     train_pd = pd.DataFrame(columns=data_pd.columns)
+    index_list = []  # 收集所有需要添加的行索引
     # 验证集点数计算
     for i in result_train_name_by_category_dic['total']:
         for j in category_name_list:
             if i in result_train_name_by_category_dic[j]:
                 point_index = data_pd[data_pd['result_name'] == i].index.tolist()
-                for line_index in point_index:
-                    result_train_num_by_category_dic['total'][1] += 1    # 训练集总点数
-                    result_train_num_by_category_dic[j][1] += 1    # 训练集分类别点数
-                    train_pd = train_pd.append(data_pd.iloc[line_index])
+                index_list.extend(point_index)
+                # 直接统计数量（无需循环逐行累加）
+                cnt = len(point_index)
+                result_train_num_by_category_dic['total'][1] += cnt
+                result_train_num_by_category_dic[j][1] += cnt
+    if index_list:
+        train_pd = data_pd.iloc[index_list].reset_index(drop=True)
     for i in category_name_list:
         result_train_num_by_category_dic[i].extend([result_train_num_by_category_dic[i][0] /
                                                   result_train_num_by_category_dic['total'][0],
@@ -239,36 +257,57 @@ def normalization(data_pd, pd_save_name, standardized_normalized_save_name, feat
 # 训练模型和保存数据
 def model_training(X_train, Y_train, X_val, Y_val, X_test, Y_test, save_dir, base_save_dir, I):
     model = tf.keras.models.Sequential()
-    model.add(tf.keras.layers.Dense(16, activation=tf.nn.relu))
-    model.add(tf.keras.layers.Dense(16, activation=tf.nn.relu))
-    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
-    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
-    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
-    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
-    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
-    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
-    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
-    model.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
-    model.add(tf.keras.layers.Dense(16, activation=tf.nn.relu))
-    model.add(tf.keras.layers.Dense(16, activation=tf.nn.relu))
+    model.add(tf.keras.layers.Dense(256, activation=tf.nn.relu))
+    model.add(BatchNormalization())
+    model.add(tf.keras.layers.GaussianNoise(0.1))  # 输入噪声，正则化
     model.add(tf.keras.layers.Dropout(0.4))
-    model.add(tf.keras.layers.Dense(3, activation=tf.nn.softmax, kernel_regularizer=tf.keras.regularizers.l2(l2=10)))
-    model.compile(optimizer='adam',
-                  loss='sparse_categorical_crossentropy',
-                  metrics=['accuracy'])
-    checkpointer = ModelCheckpoint(filepath=save_dir + '/best_model.hdf5', verbose=1, save_best_only=True)
-    # monitor:监视参数，min_delta:小于此数认为不变化，mode:loss小好，acc大好，patience:n周期无提升则退出，restore_best_weights:取最优权重
-    earlyStop = EarlyStopping(monitor='val_accuracy', min_delta=0.01, patience=10, mode='max', verbose=1,
-                              restore_best_weights=True)
-    # 增加validation_data参数作为验证集，添加早停止机制，训练时打乱序列顺序
-    history = model.fit(X_train, Y_train, callbacks=[earlyStop], epochs=1000, batch_size=10, verbose=1,
-                        validation_data=(X_val, Y_val), shuffle=True)
+    model.add(tf.keras.layers.Dense(256, activation=tf.nn.relu))
+    model.add(BatchNormalization())
+    model.add(tf.keras.layers.GaussianNoise(0.1))  # 输入噪声
+    model.add(tf.keras.layers.Dropout(0.4))
+    model.add(tf.keras.layers.Dense(256, activation=tf.nn.relu))
+    model.add(BatchNormalization())
+    model.add(tf.keras.layers.GaussianNoise(0.1))  # 输入噪声
+    model.add(tf.keras.layers.Dropout(0.4))
+    model.add(tf.keras.layers.Dense(128, activation=tf.nn.relu))
+    #model.add(tf.keras.layers.GaussianNoise(0.1))  # 输入噪声
+    model.add(tf.keras.layers.Dropout(0.4))
+    model.add(tf.keras.layers.Dense(3, activation=tf.nn.softmax, kernel_regularizer=tf.keras.regularizers.l2(0.0001)))
+
+    steps_per_epoch = len(X_train) // 4
+    # 创建余弦退火调度器
+    cosine_scheduler = CosineDecayRestarts(initial_learning_rate=0.01, first_decay_steps=5 * steps_per_epoch, t_mul=2, m_mul=0.5, alpha=0.5)
+
+    # 创建优化器（关键修正）
+    optimizer = tf.keras.optimizers.SGD(learning_rate=cosine_scheduler, momentum=0.95, nesterov=True)
+
+    model.compile(optimizer=optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+    # 回调配置
+    callbacks = [ModelCheckpoint(filepath=save_dir + '/best_model.hdf5', monitor='val_accuracy', mode='max', save_best_only=True, save_format='h5'),
+                 EarlyStopping(monitor='val_accuracy', patience=30, restore_best_weights=True)]
+
+
+    # 训练
+    history = model.fit(X_train, Y_train, epochs=200, batch_size=32, validation_data=(X_val, Y_val), callbacks=callbacks, shuffle=True)
+
     acc = history.history['accuracy']
     val_acc = history.history['val_accuracy']
     loss = history.history['loss']
     val_loss = history.history['val_loss']
     epochs = range(len(acc))
-    y_pred = model.predict(X_test)
+    print(save_dir + '/best_model.hdf5')
+    best_model = tf.keras.models.load_model(save_dir + '/best_model.hdf5')
+    y_pred = best_model.predict(X_test)
+
+    history_pd = pd.DataFrame()
+    history_pd['epoch'] = epochs
+    history_pd['train acc'] = acc
+    history_pd['val acc'] = val_acc
+    history_pd['train loss'] = loss
+    history_pd['val loss'] = val_loss
+    history_pd.to_excel(save_dir + '/模型学习率曲线数据.xlsx', index=False)
+    history_pd.to_pickle(save_dir + '/模型学习率曲线数据.pkl')
 
     # 画accuracy曲线
     plt.plot(epochs, acc, 'r')
@@ -278,7 +317,7 @@ def model_training(X_train, Y_train, X_val, Y_val, X_test, Y_test, save_dir, bas
     plt.ylabel("Accuracy")
     plt.legend(["Accuracy", "Validation Accuracy"])
     plt.savefig(save_dir + '/准确率学习曲线.jpg')
-    plt.cla()
+    plt.close('all')
     # 画loss曲线
     plt.plot(epochs, loss, 'r')
     plt.plot(epochs, val_loss, 'b')
@@ -287,7 +326,7 @@ def model_training(X_train, Y_train, X_val, Y_val, X_test, Y_test, save_dir, bas
     plt.ylabel("Loss")
     plt.legend(["Loss", "Validation Loss"])
     plt.savefig(save_dir + '/损失学习曲线.jpg')
-    plt.cla()
+    plt.close('all')
 
     y_predict = []
     for s in range(0, y_pred.shape[0]):
@@ -300,7 +339,7 @@ def model_training(X_train, Y_train, X_val, Y_val, X_test, Y_test, save_dir, bas
         else:
             continue
     y_predict = np.array(y_predict)
-    model.summary()
+    best_model.summary()
 
     # 模型预测准确率
     acc = precision_score(Y_test, y_predict, average=None)
@@ -308,13 +347,13 @@ def model_training(X_train, Y_train, X_val, Y_val, X_test, Y_test, save_dir, bas
     accuracyscore = accuracy_score(Y_test, y_predict)
     print("accuracy is ", accuracyscore)
     accuracy_pd = pd.DataFrame(columns=['accurate for M0', 'accurate for M1', 'accurate for M2', 'total accuracy'])
-    accuracy_pd = accuracy_pd.append({'accurate for M0': acc[0], 'accurate for M1': acc[1], 'accurate for M2': acc[2],
-                                      'total accuracy': accuracyscore}, ignore_index=True)
+    new_row = pd.DataFrame({'accurate for M0': acc[0], 'accurate for M1': acc[1], 'accurate for M2': acc[2], 'total accuracy': accuracyscore}, index=[0])
+    accuracy_pd = pd.concat([accuracy_pd, new_row], ignore_index=True)
     accuracy_pd.to_excel(save_dir + '/模型预测准确率.xlsx', index=False)
     accuracy_pd.to_pickle(save_dir + '/模型预测准确率.pkl')
 
     # 模型保存
-    model.save(save_dir + '/DNN.h5')
+    #model.save(save_dir + '/DNN.h5')
 
     # 绘制混淆矩阵 confusion_matrix
     from sklearn.metrics import confusion_matrix
@@ -335,7 +374,7 @@ def model_training(X_train, Y_train, X_val, Y_val, X_test, Y_test, save_dir, bas
     plt.yticks(range(len(cm_normalized_p)), ['M0', 'M1', 'M2'], fontsize=12)
     plt.savefig(save_dir + '/Confusion Matrix.jpg')
     plt.savefig(base_save_dir + '/' + str(I) + '.jpg')
-    plt.cla()
+    plt.close('all')
     # 保存数量混淆矩阵
     plt.matshow(cm_normalized_n, cmap=plt.get_cmap('Reds'))
     plt.colorbar()
@@ -349,24 +388,19 @@ def model_training(X_train, Y_train, X_val, Y_val, X_test, Y_test, save_dir, bas
     plt.xticks(range(len(cm_normalized_n)), ['M0', 'M1', 'M2'], fontsize=12)
     plt.yticks(range(len(cm_normalized_n)), ['M0', 'M1', 'M2'], fontsize=12)
     plt.savefig(save_dir + '/Confusion Matrix_nunber.jpg')
-    plt.cla()
+    plt.close('all')
 
-data_pd = pd.read_pickle('D:/ANCAI/科研/科研论文/max论文/代码/1-4. 根据特征图像，提取出每个像素点的四个特征值以及与样本中心的距离和与最大距离的比值，以及对应样本的分类标签/data_point_pd.pkl')
-base_save_dir = 'D:/ANCAI/科研/科研论文/max论文/代码/2-7-2. 每类细胞取相同比例的细胞来分割成平衡的训练集验证集和测试集，根据每个点的6个特征训练DNN，训练集验证集和测试集分别做归一化'
+data_pd = pd.read_pickle('1-4/data_point_pd.pkl')
+base_save_dir = '2-7-2-2'
 category_name_list = ['M0', 'M1', 'M2']
 category_position_in_name = [0, 2]
-for I in range(300):
-    os.mkdir(base_save_dir + '/' + str(I))
-    save_dir = base_save_dir + '/' + str(I)
+
+for I in range(100):
+    os.makedirs(base_save_dir + '/' + str(I))
+    save_dir = os.path.join(base_save_dir + '/' + str(I))
     train_pd, val_pd, test_pd = train_val_test_split(data_pd, category_name_list, category_position_in_name, save_dir, result_test_size=0.2, result_val_size=0.2, result_train_size=0.6)
     X_train, Y_train = normalization(train_pd, '训练集数据归一化', '训练集数据归一化参数', '训练集数据特征归一化数组', '训练集标签数组', save_dir)
     X_val, Y_val = normalization(val_pd, '验证集数据归一化', '验证集数据归一化参数', '验证集数据特征归一化数组', '验证集标签数组', save_dir)
     X_test, Y_test = normalization(test_pd, '测试集数据归一化', '测试集数据归一化参数', '测试集数据特征归一化数组', '测试集标签数组', save_dir)
     model_training(X_train, Y_train, X_val, Y_val, X_test, Y_test, save_dir, base_save_dir, I)
 
-
-'''
-with open(save_dir + '/分类别样本名称.pkl', 'rb') as t:
-    new_dict = pickle.load(t)
-print(new_dict)
-'''
