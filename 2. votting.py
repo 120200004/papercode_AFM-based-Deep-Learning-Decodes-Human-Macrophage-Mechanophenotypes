@@ -9,16 +9,13 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint
 import matplotlib.pyplot as plt
 from sklearn.svm import SVC
 from sklearn.metrics import mean_squared_error, r2_score, precision_score, accuracy_score, classification_report, confusion_matrix
-pd.set_option('display.max_columns', None)    # Dataframe显示所有列
+pd.set_option('display.max_columns', None)
 
 model_dir_path = '2-7-2-2/models'
 model_dir_namelist = os.listdir(model_dir_path)
 result_save_path = '3-4-4'
-# 获取图片尺寸信息
 pict_test_data_dir = 'data after mask'
-# 可视化图像放大倍数
 amplify = 16
-
 model_accuracy_pd = pd.DataFrame(columns=['model name', 'point test accuracy', 'result test accuracy without weight', 'result test accuracy without weight model', 'result test accuracy with weight model1', 'result test accuracy with weight model2'])
 model_accuracy_pd_model_name_list = []
 model_accuracy_pd_point_test_accuracy_list = []
@@ -53,14 +50,6 @@ for model_dir_name in model_dir_namelist:
     model = tf.keras.models.load_model(model_name)
     test_pd.reset_index(drop=True, inplace=True)
 
-    # 训练weights模型，用来计算随输入变化的weights，作为每个像素点的weights。
-    # 输入为每个像素点的6个特征，输出为一个0-1之间的概率，表示使用的像素点分类模型对每个像素点分类结果的可信度，作为该像素点在该像素点分类模型下的投票权重。
-    # 第一种训练方式：像素模型分类正确的像素点，训练weights模型时标签为1，分类错误标签为0。训练神经网络二分类模型
-    # 第二种训练方式：像素模型在正确的分类上预测的概率作为训练weights模型时的标签，训练神经网络回归模型
-    # 第三种训练方式：像素模型分类正确的像素点，训练weights模型时标签为1，分类错误标签为0。训练SVM二分类模型
-    # 三种训练方式会获得三个weights模型
-
-    # weights模型所需数据
     X_train = train_array_normalized
     Y_train_predict = model.predict(train_array_normalized)
     Y_train_pred = np.argmax(Y_train_predict, axis=1)
@@ -77,7 +66,6 @@ for model_dir_name in model_dir_namelist:
     weights_Y_test_1 = np.equal(test_array_target, Y_test_pred).astype(int)
     weights_Y_test_2 = Y_test_predict[np.arange(Y_test_predict.shape[0]), test_array_target]
 
-    # 第一个weights模型
     weight_model1 = tf.keras.models.Sequential()
     weight_model1.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
     weight_model1.add(BatchNormalization())
@@ -90,12 +78,10 @@ for model_dir_name in model_dir_namelist:
     weight_model1.add(BatchNormalization())
     weight_model1.add(tf.keras.layers.Dropout(0.6))
 
-    weight_model1.add(tf.keras.layers.Dense(1, activation=tf.nn.sigmoid))  # kernel_regularizer=tf.keras.regularizers.l2(l2=10)
+    weight_model1.add(tf.keras.layers.Dense(1, activation=tf.nn.sigmoid))
     weight_model1.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     checkpointer = ModelCheckpoint(filepath=result_save_path + '/' + str(model_dir_name) + '/best_weight_model1.hdf5', verbose=1, save_best_only=True)
-    # monitor:监视参数，min_delta:小于此数认为不变化，mode:loss小好，acc大好，patience:n周期无提升则退出，restore_best_weights:取最优权重
     earlyStop = EarlyStopping(monitor='val_accuracy', min_delta=0.01, patience=10, mode='max', verbose=1, restore_best_weights=True)
-    # 增加validation_data参数作为验证集，添加早停止机制，训练时打乱序列顺序
     history1 = weight_model1.fit(X_train, weights_Y_train_1, callbacks=[checkpointer, earlyStop], epochs=100, batch_size=10, verbose=1,
                         validation_data=(X_val, weights_Y_val_1), shuffle=True)
     acc1 = history1.history['accuracy']
@@ -106,7 +92,6 @@ for model_dir_name in model_dir_namelist:
     best_weight_model1 = tf.keras.models.load_model(result_save_path + '/' + str(model_dir_name) + '/best_weight_model1.hdf5')
     y_pred1 = best_weight_model1.predict(X_test)
 
-    # 画accuracy曲线
     plt.plot(epochs1, acc1, 'r')
     plt.plot(epochs1, val_acc1, 'b')
     plt.title('Training and validation accuracy')
@@ -115,7 +100,6 @@ for model_dir_name in model_dir_namelist:
     plt.legend(["Accuracy", "Validation Accuracy"])
     plt.savefig(result_save_path + '/' + str(model_dir_name) + '/weight模型1 准确率学习曲线.jpg')
     plt.cla()
-    # 画loss曲线
     plt.plot(epochs1, loss1, 'r')
     plt.plot(epochs1, val_loss1, 'b')
     plt.title('Training and validation loss')
@@ -134,7 +118,6 @@ for model_dir_name in model_dir_namelist:
     accuracy_pd.to_excel(result_save_path + '/' + str(model_dir_name) + '/weight模型1 准确率.xlsx', index=False)
     accuracy_pd.to_pickle(result_save_path + '/' + str(model_dir_name) + '/weight模型1 准确率.pkl')
 
-    # 第二个weights模型
     weight_model2 = tf.keras.models.Sequential()
     weight_model2.add(tf.keras.layers.Dense(32, activation=tf.nn.relu))
     weight_model2.add(BatchNormalization())
@@ -144,14 +127,12 @@ for model_dir_name in model_dir_namelist:
     weight_model2.add(tf.keras.layers.Dense(8, activation=tf.nn.relu))
     weight_model2.add(BatchNormalization())
 
-    weight_model2.add(tf.keras.layers.Dense(1, activation=tf.nn.sigmoid))  # kernel_regularizer=tf.keras.regularizers.l2(l2=10)
+    weight_model2.add(tf.keras.layers.Dense(1, activation=tf.nn.sigmoid))
     weight_model2.compile(optimizer='adam', loss='mse', metrics=['accuracy'])
     checkpointer = ModelCheckpoint(filepath=result_save_path + '/' + str(model_dir_name) + '/best_weight_model2.hdf5',
                                    verbose=1, save_best_only=True)
-    # monitor:监视参数，min_delta:小于此数认为不变化，mode:loss小好，acc大好，patience:n周期无提升则退出，restore_best_weights:取最优权重
     earlyStop = EarlyStopping(monitor='val_accuracy', min_delta=0.01, patience=10, mode='max', verbose=1,
                               restore_best_weights=True)
-    # 增加validation_data参数作为验证集，添加早停止机制，训练时打乱序列顺序
     history2 = weight_model2.fit(X_train, weights_Y_train_2, callbacks=[checkpointer, earlyStop], epochs=100, batch_size=10, verbose=1,
                                  validation_data=(X_val, weights_Y_val_1), shuffle=True)
     acc2 = history2.history['accuracy']
@@ -162,7 +143,6 @@ for model_dir_name in model_dir_namelist:
     best_weight_model2 = tf.keras.models.load_model(result_save_path + '/' + str(model_dir_name) + '/best_weight_model2.hdf5')
     y_pred2 = best_weight_model2.predict(X_test)
 
-    # 画accuracy曲线
     plt.plot(epochs2, acc2, 'r')
     plt.plot(epochs2, val_acc2, 'b')
     plt.title('Training and validation accuracy')
@@ -171,7 +151,6 @@ for model_dir_name in model_dir_namelist:
     plt.legend(["Accuracy", "Validation Accuracy"])
     plt.savefig(result_save_path + '/' + str(model_dir_name) + '/weight模型2 准确率学习曲线.jpg')
     plt.cla()
-    # 画loss曲线
     plt.plot(epochs2, loss2, 'r')
     plt.plot(epochs2, val_loss2, 'b')
     plt.title('Training and validation loss')
@@ -184,33 +163,10 @@ for model_dir_name in model_dir_namelist:
     y_predict2 = y_pred2
     weight_model2.summary()
 
-    # 模型预测MSE,RMES,R2
-    mse = mean_squared_error(weights_Y_test_2, y_predict2)
-    print("MSE= ", mse)
-    rmse = np.sqrt(mse)
-    print('RMSE=', rmse)
-    r2 = r2_score(weights_Y_test_2, y_predict2)
-    print('R2=', r2)
-    model2score_pd = pd.DataFrame({'MSE': [mse], 'RMSE': [rmse], 'R2': [r2]})
-    model2score_pd.to_excel(result_save_path + '/' + str(model_dir_name) + '/weight模型2 score.xlsx', index=False)
-    model2score_pd.to_pickle(result_save_path + '/' + str(model_dir_name) + '/weight模型2 score.pkl')
-    '''
-    # 第三个weights模型
-    weight_model3 = SVC(kernel='rbf', C=1.0, gamma='scale', probability=True, random_state=42)
-    weight_model3.fit(X_train, weights_Y_train_1)
-    y_pred = weight_model3.predict(X_test)
-    print("Accuracy:", accuracy_score(weights_Y_test_1, y_pred))
-    print("Classification Report:\n", classification_report(weights_Y_test_1, y_pred))
-    print("Confusion Matrix:\n", confusion_matrix(weights_Y_test_1, y_pred))
-    '''
-
-
-    # 测试集result名称
     test_result_name = []
     for i in test_pd['result_name']:
         if i not in test_result_name:
             test_result_name.append(i)
-
 
     test_pd['M0 possibility'] = Y_test_predict[:, 0]
     test_pd['M1 possibility'] = Y_test_predict[:, 1]
@@ -218,8 +174,6 @@ for model_dir_name in model_dir_namelist:
     test_pd['predict category by point'] = Y_test_pred
     test_pd['weight model 1 prediction'] = y_predict1
     test_pd['weight model 2 prediction'] = y_predict2
-
-    # 根据每个点的预测结果，投票得到整个细胞的分类
     test_pd['predict category by result without weight'] = [-1 for i in range(test_pd.shape[0])]
     test_pd['weighted vote without weight'] = [[] for i in range(test_pd.shape[0])]
     test_pd['weighted vote dic without weight'] = [{} for i in range(test_pd.shape[0])]
@@ -232,7 +186,6 @@ for model_dir_name in model_dir_namelist:
     test_pd['predict category by result with weight model2'] = [-1 for i in range(test_pd.shape[0])]
     test_pd['weighted vote with weight model2'] = [[] for i in range(test_pd.shape[0])]
     test_pd['weighted vote dic with weight model2'] = [{} for i in range(test_pd.shape[0])]
-
     test_pd['predict category by result without weight'] = test_pd['predict category by result without weight'].astype('object')
     test_pd['weighted vote without weight'] = test_pd['weighted vote without weight'].astype('object')
     test_pd['weighted vote dic without weight'] = test_pd['weighted vote dic without weight'].astype('object')
@@ -248,7 +201,7 @@ for model_dir_name in model_dir_namelist:
     for result_name in test_result_name:
         a = []
         point_index_list = test_pd[test_pd['result_name'] == result_name].index.tolist()
-        weighted_vote_dic_without_weight = {0: 0, 1: 0, 2: 0}  # 用来保存一个细胞内每个像素点的投票结果加权后的结果
+        weighted_vote_dic_without_weight = {0: 0, 1: 0, 2: 0}
         weighted_vote_dic_without_weight_model = {0: 0, 1: 0, 2: 0}
         weighted_vote_dic_with_weight_model1 = {0: 0, 1: 0, 2: 0}
         weighted_vote_dic_with_weight_model2 = {0: 0, 1: 0, 2: 0}
@@ -262,7 +215,6 @@ for model_dir_name in model_dir_namelist:
         weighted_vote_list_with_weight_model1 = sorted((list(weighted_vote_dic_with_weight_model1.items())), key=lambda x: x[1], reverse=True)
         weighted_vote_list_with_weight_model2 = sorted((list(weighted_vote_dic_with_weight_model2.items())), key=lambda x: x[1], reverse=True)
         for i in point_index_list:
-            # 每个样本的像素点投票加权计算的结果
             test_pd.at[i, 'weighted vote without weight'] = weighted_vote_list_without_weight
             test_pd.at[i, 'weighted vote dic without weight'] = weighted_vote_dic_without_weight
             test_pd.at[i, 'weighted vote without weight model'] = weighted_vote_list_without_weight_model
@@ -271,7 +223,6 @@ for model_dir_name in model_dir_namelist:
             test_pd.at[i, 'weighted vote dic with weight model1'] = weighted_vote_dic_with_weight_model1
             test_pd.at[i, 'weighted vote with weight model2'] = weighted_vote_list_with_weight_model2
             test_pd.at[i, 'weighted vote dic with weight model2'] = weighted_vote_dic_with_weight_model2
-            # 像素点投票加权计算的结果作为样本的预测结果
             test_pd.at[i, 'predict category by result without weight'] = weighted_vote_list_without_weight[0][0]
             test_pd.at[i, 'predict category by result without weight model'] = weighted_vote_list_without_weight_model[0][0]
             test_pd.at[i, 'predict category by result with weight model1'] = weighted_vote_list_with_weight_model1[0][0]
@@ -279,7 +230,6 @@ for model_dir_name in model_dir_namelist:
     test_pd.to_excel(result_save_path + '/' + str(model_dir_name) + '/测试集样品逐点数据及预测结果.xlsx', index=False)
     test_pd.to_pickle(result_save_path + '/' + str(model_dir_name) + '/测试集样品逐点数据及预测结果.pkl')
 
-    # 寻找并保存预测错的点和样本的数据
     wrong_predict_point_pd = test_pd[test_pd['predict category by point'] != test_pd['target']]
     wrong_predict_result_pd_without_weight = test_pd[test_pd['predict category by result without weight'] != test_pd['target']]
     wrong_predict_result_pd_without_weight_model = test_pd[test_pd['predict category by result without weight model'] != test_pd['target']]
@@ -295,7 +245,6 @@ for model_dir_name in model_dir_namelist:
     wrong_predict_result_pd_with_weight_model1.to_pickle(result_save_path + '/' + str(model_dir_name) + '/测试集预测错误的样本 with weight model1.pkl')
     wrong_predict_result_pd_with_weight_model2.to_excel(result_save_path + '/' + str(model_dir_name) + '/测试集预测错误的样本 with weight model2.xlsx', index=False)
     wrong_predict_result_pd_with_weight_model2.to_pickle(result_save_path + '/' + str(model_dir_name) + '/测试集预测错误的样本 with weight model2.pkl')
-    # 预测错误数量统计
     wrong_predict_result_name_without_weight = []
     for i in wrong_predict_result_pd_without_weight['result_name']:
         if i not in wrong_predict_result_name_without_weight:
@@ -334,11 +283,7 @@ for model_dir_name in model_dir_namelist:
     model_accuracy_pd_result_test_accuracy_with_weight_model1_list.append(1 - (len(wrong_predict_result_name_with_weight_model1) / len(test_result_name)))
     model_accuracy_pd_result_test_accuracy_with_weight_model2_list.append(1 - (len(wrong_predict_result_name_with_weight_model2) / len(test_result_name)))
 
-
-    # 将每个细胞的逐点分类结果作图
-    # 根据每个点三个分类预测概率计算该点三分类图的像素图以及投票柱状图，并作图保存
     for result_name in test_result_name:
-        # 获取图片尺寸
         f = open(pict_test_data_dir + '/CorrMorpho/' + result_name[:2] + '/' + result_name.replace('MechD', 'CorrMorpho'))
         line = f.readline()
         r_list = []
@@ -348,11 +293,9 @@ for model_dir_name in model_dir_namelist:
             line = f.readline()
         f.close()
         r_array = np.array(r_list)
-
         vote_to_M0_num_point = 0
         vote_to_M1_num_point = 0
         vote_to_M2_num_point = 0
-        # 根据原始数据的尺寸创建作图尺寸
         M0_map = np.zeros(r_array.shape, dtype=int)
         M1_map = np.zeros(r_array.shape, dtype=int)
         M2_map = np.zeros(r_array.shape, dtype=int)
@@ -373,8 +316,7 @@ for model_dir_name in model_dir_namelist:
         plt.xlabel('category')
         plt.ylabel('percentage')
         plt.savefig(result_save_path + '/' + str(model_dir_name) + '/逐点分类可视化/' + result_name[: -9] + ' without weight.jpg')
-        plt.cla()    # 清空图片
-
+        plt.cla()
         wv_dic = test_pd.iloc[point_index_list[0]]['weighted vote dic without weight model']  # 加权投票结果列记录的是样本的结果，一个样本内所有像素点的这一列是相同的，选一个做代表
         wv_sum = 0
         for v in wv_dic:
@@ -384,8 +326,7 @@ for model_dir_name in model_dir_namelist:
         plt.xlabel('category')
         plt.ylabel('percentage')
         plt.savefig(result_save_path + '/' + str(model_dir_name) + '/逐点分类可视化/' + result_name[: -9] + ' without weight model model.jpg')
-        plt.cla()  # 清空图片
-
+        plt.cla()
         wv_dic = test_pd.iloc[point_index_list[0]]['weighted vote dic with weight model1']
         wv_sum = 0
         for v in wv_dic:
@@ -395,8 +336,7 @@ for model_dir_name in model_dir_namelist:
         plt.xlabel('category')
         plt.ylabel('percentage')
         plt.savefig(result_save_path + '/' + str(model_dir_name) + '/逐点分类可视化/' + result_name[: -9] + ' with weight model1.jpg')
-        plt.cla()  # 清空图片
-
+        plt.cla()
         wv_dic = test_pd.iloc[point_index_list[0]]['weighted vote dic with weight model2']
         wv_sum = 0
         for v in wv_dic:
@@ -406,8 +346,7 @@ for model_dir_name in model_dir_namelist:
         plt.xlabel('category')
         plt.ylabel('percentage')
         plt.savefig(result_save_path + '/' + str(model_dir_name) + '/逐点分类可视化/' + result_name[: -9] + ' with weight model2.jpg')
-        plt.cla()  # 清空图片
-
+        plt.cla()
         img_M0 = Image.new('RGB', (r_array.shape[0] * amplify, r_array.shape[1] * amplify), (0, 0, 0))
         draw = ImageDraw.Draw(img_M0)
         for m in range(r_array.shape[0]):
@@ -452,4 +391,3 @@ model_accuracy_pd['result test accuracy with weight model1'] = model_accuracy_pd
 model_accuracy_pd['result test accuracy with weight model2'] = model_accuracy_pd_result_test_accuracy_with_weight_model2_list
 model_accuracy_pd.to_excel(result_save_path + '/模型准确率.xlsx', index=False)
 model_accuracy_pd.to_pickle(result_save_path + '/模型准确率.pkl')
-
